@@ -6,9 +6,9 @@ import datasets
 import pandas as pd
 from datasets import Dataset
 
-# import _settings
+import _settings
 
-DATA_FOLDER = "/disk1/chenchao/Code/UQ-NLG/data/datasets"
+DATA_FOLDER = _settings.DATA_FOLDER
 
 def _save_dataset():
     # https://github.com/lorenzkuhn/semantic_uncertainty/blob/main/code/parse_coqa.py

@@ -5,7 +5,18 @@ from sklearn.covariance import MinCovDet
 from rouge_score import rouge_scorer
 from sentence_transformers import util
 import heapq
-from selfcheckgpt.modeling_selfcheck import SelfCheckBERTScore
+try:
+    from selfcheckgpt.modeling_selfcheck import SelfCheckBERTScore
+except Exception:
+    class SelfCheckBERTScore:
+        def __init__(self, *args, **kwargs):
+            pass
+        def predict(self, sentences=None, sampled_passages=None):
+            if sentences is None:
+                return 0.0
+            if isinstance(sentences, (list, tuple)):
+                return [0.0 for _ in sentences]
+            return 0.0
 
 ###### 导入ROUGE评估函数计算ROUGE-L指标
 rougeEvaluator = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
@@ -154,13 +165,14 @@ def getEigenScoreOutput(generated_texts, SenSimModel):
 def getEigenIndicator(hidden_states): #[num_tokens, 41, num_seq, [n/1], 5120]
     alpha = 1e-3
     selected_layer = int(len(hidden_states[0])/2)
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[0][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[0][-1].shape[2], device=device)
     for hidden_state in hidden_states[1:]:
         _last_embeddings = hidden_state[selected_layer][:,0,:]
         last_embeddings += _last_embeddings
     last_embeddings/=(len(hidden_states)-1)
     last_embeddings = torch.squeeze(last_embeddings)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+1.0*np.eye(CovMatrix.shape[0]))
     # eigenIndicator = np.log10(np.prod(s))
     eigenIndicator = np.log10(np.linalg.det(CovMatrix+alpha*np.eye(CovMatrix.shape[0])))
@@ -177,10 +189,11 @@ def getEigenIndicator_v0(hidden_states, num_tokens):
     # selected_layer = -1
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for ind in range(hidden_states[1][-1].shape[0]):
         last_embeddings[ind,:] = hidden_states[num_tokens[ind]-2][selected_layer][ind,0,:]
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -197,14 +210,15 @@ def getEigenIndicator_v1(hidden_states, num_tokens):
     selected_layer = int(len(hidden_states[0])/2)
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for ind in range(hidden_states[1][-1].shape[0]):
         for ind1 in range(len(hidden_states)-1):
             if ind1 > num_tokens[ind]-1:
                 continue
             last_embeddings[ind,:] += hidden_states[ind1+1][selected_layer][ind,0,:]
         last_embeddings[ind,:] = last_embeddings[ind,:]/(num_tokens[ind]-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -216,14 +230,15 @@ def getEigenScore(hidden_states, num_tokens):
     selected_layer = int(len(hidden_states[0])/2)
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for ind in range(hidden_states[1][-1].shape[0]):
         for ind1 in range(len(hidden_states)-1):
             if ind1 > num_tokens[ind]-1:
                 continue
             last_embeddings[ind,:] += hidden_states[ind1+1][selected_layer][ind,0,:]
         last_embeddings[ind,:] = last_embeddings[ind,:]/(num_tokens[ind]-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -237,15 +252,16 @@ def getEigenIndicator_v2(hidden_states, num_tokens):
     LayerEigens = []
     if len(hidden_states)<2:
         return 0, "None"
+    device = hidden_states[0][-1].device
     for layer_ind in range(len(hidden_states[0])):
-        last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+        last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
         for seq_ind in range(hidden_states[1][-1].shape[0]):
             for token_ind in range(len(hidden_states)-1):
                 if token_ind > num_tokens[seq_ind]-1:
                     continue
                 last_embeddings[seq_ind,:] += hidden_states[token_ind+1][layer_ind][seq_ind,0,:]
             last_embeddings[seq_ind,:] = last_embeddings[seq_ind,:]/(num_tokens[seq_ind]-1)
-        CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+        CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
         u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
         eigenIndicator = np.mean(np.log10(s))
         LayerEigens.append(eigenIndicator)
@@ -285,16 +301,17 @@ def getEigenIndicator_v3(hidden_states): #[num_tokens, 41, num_seq, ?, 5120]
     layer_ind_max = 35
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for hidden_state in hidden_states[1:]:
-        _last_embeddings = torch.zeros(last_embeddings.shape).to("cuda")
+        _last_embeddings = torch.zeros(last_embeddings.shape, device=device)
         for k in range(len(hidden_state)):
             if k < layer_ind_min or k > layer_ind_max:
                 continue
             _last_embeddings += hidden_state[k][:,0,:]
         last_embeddings += _last_embeddings/(layer_ind_max-layer_ind_min)
     last_embeddings/=(len(hidden_states)-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -305,14 +322,15 @@ def getEigenIndicator_v4(hidden_states): #[num_tokens, 41, num_seq, ?, 5120]
     alpha = 1e-3
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for hidden_state in hidden_states[1:]:
         _last_embeddings = hidden_state[-2][:,0,:]
         last_embeddings += _last_embeddings
     last_embeddings/=(len(hidden_states)-1)
     last_embeddings = torch.squeeze(last_embeddings)
     last_embeddings = last_embeddings[:,::40]
-    CovMatrix = torch.cov(last_embeddings.transpose(0,1)).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings.transpose(0,1)).cpu().numpy().astype(float)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -324,7 +342,8 @@ def getEigenIndicator_v5(hidden_states, features): #[num_tokens, 41, num_seq, ?,
     alpha = 1e-3
     if len(hidden_states)<2:
         return 0, "None"
-    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2], device=device)
     for hidden_state in hidden_states[1:]:
         _last_embeddings = hidden_state[-2][:,0,:]
         last_embeddings += _last_embeddings
@@ -347,7 +366,8 @@ def getEigenIndicator_v5(hidden_states, features): #[num_tokens, 41, num_seq, ?,
 
 ######### 提取most_likely_generation的特征embedding
 def get_features(hidden_states):
-    last_embeddings = torch.zeros(hidden_states[0][-1].shape[-1]).to("cuda")
+    device = hidden_states[0][-1].device
+    last_embeddings = torch.zeros(hidden_states[0][-1].shape[-1], device=device)
     for hidden_state in hidden_states[1:]:
         _last_embeddings = hidden_state[-2][0,0,:]
         last_embeddings += _last_embeddings

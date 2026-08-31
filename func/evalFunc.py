@@ -6,8 +6,12 @@ from rouge_score import rouge_scorer
 import math
 from sklearn.metrics import roc_curve, auc
 from sentence_transformers import SentenceTransformer
-from metric import *
-from plot import *
+try:
+    from func.metric import *
+    from func.plot import *
+except ImportError:
+    from metric import *
+    from plot import *
 
 USE_Roberta = False
 USE_EXACT_MATCH = True
@@ -249,33 +253,22 @@ def compute_exact_match(prediction, truth):
 
 
 if __name__ == "__main__":
-    file_name = "../data/output/llama-7b-hf_coqa_1/0.pkl"
-    # file_name = "../data/output/llama-7b-hf_triviaqa_3/0.pkl"
-    # file_name = "../data/output/llama-7b-hf_nq_open_1/0.pkl"
-    # file_name = "../data/output/llama-7b-hf_SQuAD_1/0.pkl"
+    import sys
+    import glob
 
-    # file_name = "../data/output/opt-6.7b_triviaqa_0/0.pkl"
-    # file_name = "../data/output/opt-6.7b_nq_open_2/0.pkl"
-    # file_name = "../data/output/opt-6.7b_coqa_0/0.pkl"
-    # file_name = "../data/output/opt-6.7b_SQuAD_0/0.pkl"
+    if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        file_name = sys.argv[1]
+    else:
+        candidates = glob.glob("./data/output/*/*.pkl") or glob.glob("../data/output/*/*.pkl")
+        candidates = [_ for _ in candidates if '_partial' not in _]
+        if candidates:
+            file_name = max(candidates, key=os.path.getmtime)
+        else:
+            file_name = "../data/output/llama-7b-hf_coqa_1/0.pkl"
 
-    # file_name = "../data/output/llama-13b-hf_coqa_0/0.pkl"
-    # file_name = "../data/output/llama-13b-hf_triviaqa_0/0.pkl"
-    # file_name = "../data/output/llama-13b-hf_nq_open_3/0.pkl"
-    # file_name = "../data/output/llama-13b-hf_SQuAD_0/0.pkl"
-
-    # file_name = "../data/output/llama-7b-hf_TruthfulQA_7/0.pkl"
-
-    # file_name = "../data/output/llama2-7b-hf_coqa_0/0.pkl"
-    # file_name = "../data/output/llama2-7b-hf_nq_open_0/0.pkl"
-
-    # file_name = "../data/output/falcon-7b_coqa_0/0.pkl"
-    # file_name = "../data/output/falcon-7b_nq_open_0/0.pkl"
-
-
-    f = open(file_name, "rb")
-    resultDict = pkl.load(f)
-    # printInfo(resultDict)
+    print(f"Evaluating results from: {file_name}")
+    with open(file_name, "rb") as f:
+        resultDict = pkl.load(f)
     getAcc(resultDict, file_name)
     getAUROC(resultDict, file_name)
 

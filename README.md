@@ -14,6 +14,18 @@ The dataset can be downloaded here ...
 
 ## Run the code
 
+On Windows, run:
+
+```powershell
+.\run.ps1
+```
+
+On macOS/Linux, run:
+
+```bash
+bash run.sh
+```
+
 ## Use Eigensocre in your code
 
 ## Citation

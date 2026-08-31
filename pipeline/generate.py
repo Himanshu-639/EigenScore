@@ -23,9 +23,9 @@ import utils
 from func.metric import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, default='llama-13b-hf')
+parser.add_argument('--model', type=str, default='facebook/opt-125m' if not os.path.exists('./data/weights/llama-7b-hf') else 'llama-7b-hf')
 parser.add_argument('--dataset', type=str, default='coqa')
-parser.add_argument('--device', type=str, default='cuda:0')
+parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_available() else 'cpu')
 parser.add_argument('--fraction_of_data_to_use', type=float, default=1.0)
 parser.add_argument('--num_generations_per_prompt', type=int, default=10)
 parser.add_argument('--temperature', type=float, default=0.5)
@@ -35,10 +35,13 @@ parser.add_argument('--top_k', type=int, default=10)
 parser.add_argument('--seed', type=int, default=2023)
 parser.add_argument('--nprocess', type=int, default=None)
 parser.add_argument('--project_ind', type=int, default=0)
+parser.add_argument('--overwrite', action='store_true', default=False)
 
 
 args = parser.parse_args()
-logInfo = open("./data/output/logInfo_{}_{}.txt".format(args.model, args.dataset), mode="w",encoding="utf-8")
+os.makedirs(_settings.GENERATION_FOLDER, exist_ok=True)
+safe_model_name = args.model.replace('/', '_')
+logInfo = open(os.path.join(_settings.GENERATION_FOLDER, f"logInfo_{safe_model_name}_{args.dataset}.txt"), mode="w", encoding="utf-8")
 
 
 # _UNUSED_TOKENIZER = models.load_tokenizer()
@@ -74,9 +77,13 @@ def get_generation_config(input_ids, tokenizer, data_name):
 @torch.no_grad()
 def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_gen_once=args.num_generations_per_prompt):
     device = args.device
+    dev_name = torch.cuda.get_device_name(device) if (torch.cuda.is_available() and 'cuda' in str(device)) else 'CPU'
+    print(f"Using device: {device} [{dev_name}]")
     model, tokenizer = models.load_model_and_tokenizer(model_name, args.device)
-    SenSimModel = SentenceTransformer('./data/weights/nli-roberta-large')
-    bertscore = BERTScore(model_name_or_path="./data/weights/bert-base/", device="cuda")
+    sen_sim_path = './data/weights/nli-roberta-large' if os.path.exists('./data/weights/nli-roberta-large') else 'sentence-transformers/nli-roberta-large'
+    SenSimModel = SentenceTransformer(sen_sim_path, device=device)
+    bert_path = "./data/weights/bert-base/" if os.path.exists("./data/weights/bert-base/") else "bert-base-uncased"
+    bertscore = BERTScore(model_name_or_path=bert_path, device=device)
 
     utils.seed_everything(seed)
     dataset = get_dataset_fn(args.dataset)(tokenizer)
@@ -115,7 +122,8 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
             energy_score = get_energy_score(scores)
             most_likely_generations = dict_outputs.sequences.cpu()[0, input_length:]
 
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         generations = []
         num_gens = args.num_generations_per_prompt
         while num_gens > 0:
@@ -203,7 +211,8 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
             curr_seq['additional_answers'] = [x[0] for x in batch['additional_answers']]
 
         sequences.append(curr_seq)
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         ########## 信息打印 #########
         # print("Prompt:", tokenizer.decode(input_ids.cpu()[0], skip_special_tokens=True))
         print("Question:", batch['question'][0])
@@ -257,9 +266,8 @@ def main(overwrite=False, continue_from=None, parallel:int=None):
     else:
         old_sequences = []
         model_name = args.model
-        if '/' in model_name:
-            model_name = model_name.replace('/', '_')
-        cache_dir = os.path.join(_settings.GENERATION_FOLDER, f'{model_name}_{args.dataset}_{args.project_ind}')
+        model_name_safe = model_name.replace('/', '_')
+        cache_dir = os.path.join(_settings.GENERATION_FOLDER, f'{model_name_safe}_{args.dataset}_{args.project_ind}')
         os.makedirs(cache_dir, exist_ok=True)
         old_results = glob.glob(os.path.join(cache_dir, '*.pkl'))
         old_results = [_ for _ in old_results if '_partial' not in _]
@@ -277,4 +285,4 @@ def main(overwrite=False, continue_from=None, parallel:int=None):
     return
 
 if __name__ == '__main__':
-    task_runner = main(parallel=args.nprocess)
+    task_runner = main(overwrite=args.overwrite, parallel=args.nprocess)
